@@ -11,6 +11,7 @@ struct CPUTestView: View {
     
     private let analyticsService: AnalyticsService
     @State private var showingStressModal = false
+    @State private var progressTrackingTask: Task<Void, Never>?
     
     init(analyticsService: AnalyticsService) {
         self.analyticsService = analyticsService
@@ -69,7 +70,32 @@ struct CPUTestView: View {
             CPUStressModal(isPresented: $showingStressModal, analyticsService: analyticsService)
         }
         .onAppear {
-            analyticsService.track(event: "cpu_tab_viewed", properties: nil)
+            analyticsService.track(event: "CPU Tab - Viewed", properties: nil)
+            startProgressTracking()
         }
+        .onDisappear {
+            stopProgressTracking()
+        }
+    }
+    
+    private func startProgressTracking() {
+        progressTrackingTask = Task.detached {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                if !Task.isCancelled {
+                    await MainActor.run {
+                        analyticsService.track(event: "CPU Tab - In Progress", properties: [
+                            "tab_active": true,
+                            "modal_showing": showingStressModal
+                        ])
+                    }
+                }
+            }
+        }
+    }
+    
+    private func stopProgressTracking() {
+        progressTrackingTask?.cancel()
+        progressTrackingTask = nil
     }
 }

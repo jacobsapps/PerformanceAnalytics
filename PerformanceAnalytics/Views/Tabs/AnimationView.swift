@@ -15,6 +15,7 @@ struct AnimationView: View {
     @State private var animationSpeed: Double = 1.0
     @State private var lineCount = 200
     @State private var animationStartTime: Date?
+    @State private var progressTrackingTask: Task<Void, Never>?
     
     init(analyticsService: AnalyticsService) {
         self.analyticsService = analyticsService
@@ -108,9 +109,11 @@ struct AnimationView: View {
             .navigationTitle("Animation")
         }
         .onAppear {
-            analyticsService.track(event: "animation_tab_viewed", properties: nil)
+            analyticsService.track(event: "Animation Tab - Viewed", properties: nil)
+            startProgressTracking()
         }
         .onDisappear {
+            stopProgressTracking()
             if isAnimating {
                 stopAnimation()
             }
@@ -129,7 +132,7 @@ struct AnimationView: View {
         isAnimating = true
         animationStartTime = Date()
         
-        analyticsService.track(event: "animation_started", properties: [
+        analyticsService.track(event: "Animation - Started", properties: [
             "line_count": lineCount,
             "animation_speed": animationSpeed,
             "expected_render_load": calculateRenderLoad()
@@ -142,7 +145,7 @@ struct AnimationView: View {
         isAnimating = false
         let duration = animationStartTime.map { Date().timeIntervalSince($0) } ?? 0
         
-        analyticsService.track(event: "animation_stopped", properties: [
+        analyticsService.track(event: "Animation - Stopped", properties: [
             "line_count": lineCount,
             "animation_speed": animationSpeed,
             "duration": duration,
@@ -157,6 +160,30 @@ struct AnimationView: View {
         let baseLoad = Double(lineCount) / 500.0 * 100.0
         let speedMultiplier = animationSpeed
         return Int(min(baseLoad * speedMultiplier, 100.0))
+    }
+    
+    private func startProgressTracking() {
+        progressTrackingTask = Task.detached {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                if !Task.isCancelled {
+                    await MainActor.run {
+                        analyticsService.track(event: "Animation Tab - In Progress", properties: [
+                            "is_animating": isAnimating,
+                            "line_count": lineCount,
+                            "animation_speed": animationSpeed,
+                            "render_load": calculateRenderLoad(),
+                            "duration": animationStartTime.map { Date().timeIntervalSince($0) } ?? 0
+                        ])
+                    }
+                }
+            }
+        }
+    }
+    
+    private func stopProgressTracking() {
+        progressTrackingTask?.cancel()
+        progressTrackingTask = nil
     }
 }
 

@@ -18,6 +18,7 @@ struct FormsView: View {
     @State private var company = ""
     @State private var bio = ""
     @State private var isShowingSuccessAlert = false
+    @State private var progressTrackingTask: Task<Void, Never>?
     
     init(analyticsService: AnalyticsService) {
         self.analyticsService = analyticsService
@@ -133,7 +134,11 @@ struct FormsView: View {
             Text("Form submitted successfully!")
         }
         .onAppear {
-            analyticsService.track(event: "forms_tab_viewed", properties: nil)
+            analyticsService.track(event: "Forms Tab - Viewed", properties: nil)
+            startProgressTracking()
+        }
+        .onDisappear {
+            stopProgressTracking()
         }
     }
     
@@ -146,7 +151,7 @@ struct FormsView: View {
     }
     
     private func trackFieldInteraction(field: String) {
-        analyticsService.track(event: "form_interaction", properties: [
+        analyticsService.track(event: "Form - Interaction", properties: [
             "field": field,
             "character_count": getFieldCharacterCount(field: field),
             "total_form_characters": totalCharacterCount,
@@ -181,7 +186,7 @@ struct FormsView: View {
     }
     
     private func submitForm() {
-        analyticsService.track(event: "form_submitted", properties: [
+        analyticsService.track(event: "Form - Submitted", properties: [
             "total_characters": totalCharacterCount,
             "completion_percentage": calculateCompletionPercentage(),
             "fields_completed": [
@@ -198,7 +203,7 @@ struct FormsView: View {
     }
     
     private func clearForm() {
-        analyticsService.track(event: "form_cleared", properties: [
+        analyticsService.track(event: "Form - Cleared", properties: [
             "previous_character_count": totalCharacterCount,
             "previous_completion_percentage": calculateCompletionPercentage()
         ])
@@ -209,5 +214,35 @@ struct FormsView: View {
         address = ""
         company = ""
         bio = ""
+    }
+    
+    private func startProgressTracking() {
+        progressTrackingTask = Task.detached {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                if !Task.isCancelled {
+                    await MainActor.run {
+                        analyticsService.track(event: "Forms Tab - In Progress", properties: [
+                            "form_valid": isFormValid,
+                            "total_characters": totalCharacterCount,
+                            "completion_percentage": calculateCompletionPercentage(),
+                            "active_fields": [
+                                "name": !name.isEmpty,
+                                "email": !email.isEmpty,
+                                "phone": !phone.isEmpty,
+                                "address": !address.isEmpty,
+                                "company": !company.isEmpty,
+                                "bio": !bio.isEmpty
+                            ]
+                        ])
+                    }
+                }
+            }
+        }
+    }
+    
+    private func stopProgressTracking() {
+        progressTrackingTask?.cancel()
+        progressTrackingTask = nil
     }
 }

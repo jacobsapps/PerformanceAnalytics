@@ -9,10 +9,22 @@ import SwiftUI
 
 @main
 struct PerformanceAnalyticsApp: App {
-    private let analyticsService: AnalyticsService = MixpanelAnalyticsService()
+    private let analyticsService: AnalyticsService
+    @StateObject private var lifecycleService: AppLifecycleService
+    @AppStorage("user_id") private var storedUserId: String = ""
     
     init() {
-        let userId = UUID().uuidString
+        let analyticsService = MixpanelAnalyticsService()
+        self.analyticsService = analyticsService
+        self._lifecycleService = StateObject(wrappedValue: AppLifecycleService(analyticsService: analyticsService))
+        
+        let userId: String
+        if storedUserId.isEmpty {
+            userId = UUID().uuidString
+            storedUserId = userId
+        } else {
+            userId = storedUserId
+        }
         analyticsService.identifyUser(userId: userId, properties: [:])
     }
     
@@ -44,6 +56,7 @@ struct PerformanceAnalyticsApp: App {
                     }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .environmentObject(lifecycleService)
         }
     }
 }

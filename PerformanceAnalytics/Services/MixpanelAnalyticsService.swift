@@ -14,11 +14,10 @@ class MixpanelAnalyticsService: AnalyticsService {
     private let performanceService = SystemPerformanceService.shared
     private let mixpanelInstance: MixpanelInstance
     
-    /// Initialize Mixpanel analytics service with API key
-    /// Replace YOUR_API_KEY_HERE with your actual Mixpanel project API key
+    /// Initialize Mixpanel analytics service with project token
     init() {
-        let MIXPANEL_API_KEY = "YOUR_API_KEY_HERE"
-        self.mixpanelInstance = Mixpanel.initialize(token: MIXPANEL_API_KEY, trackAutomaticEvents: true)
+        let MIXPANEL_PROJECT_TOKEN = ""
+        self.mixpanelInstance = Mixpanel.initialize(token: MIXPANEL_PROJECT_TOKEN, trackAutomaticEvents: true)
     }
     
     /// Track an event with automatic performance metrics attachment
