@@ -26,7 +26,6 @@ class MixpanelAnalyticsService: AnalyticsService {
     ///   - event: The event name to track
     ///   - properties: Optional dictionary of event-specific properties
     func track(event: String, properties: [String: Any]? = nil) {
-        print("=== Analytics Event: ", event)
         
         var enrichedProperties = performanceService.getAllMetrics()
         

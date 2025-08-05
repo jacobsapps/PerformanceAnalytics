@@ -14,8 +14,8 @@
             filePath = "PerformanceAnalytics/Services/MixpanelAnalyticsService.swift"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "37"
-            endingLineNumber = "37"
+            startingLineNumber = "36"
+            endingLineNumber = "36"
             landmarkName = "track(event:properties:)"
             landmarkType = "7">
          </BreakpointContent>

@@ -57,7 +57,6 @@ class SystemPerformanceService {
 
         vm_deallocate(mach_task_self_, vm_address_t(UInt(bitPattern: threadsList)), vm_size_t(Int(threadsCount) * MemoryLayout<thread_t>.stride))
         let cpuPercentage = totalUsageOfCPU * 100.0
-        print("=== CPU usage: ", String(format: "%.2f%%", cpuPercentage))
         return cpuPercentage
     }
     
@@ -85,9 +84,6 @@ class SystemPerformanceService {
         let totalMemory = ProcessInfo.processInfo.physicalMemory
         let usedMemory = UInt64(taskInfo.phys_footprint)
         let usedMB = Double(usedMemory) / (1024 * 1024)
-        
-        print("=== memory usage: ", String(format: "%.2f MB", usedMB))
-        
         return (used: usedMemory, total: totalMemory, usedMB: usedMB)
     }
     
@@ -156,8 +152,6 @@ class SystemPerformanceService {
         @unknown default: batteryStateString = "unknown"
         }
         
-        print("UsedMB")
-        print(round(memoryInfo.usedMB * 100) / 100)
         return [
             "thermal_state": thermalRating,
             "cpu_usage_percent": round(cpuUsage * 100) / 100,
