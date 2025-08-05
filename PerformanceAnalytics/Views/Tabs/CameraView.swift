@@ -8,6 +8,7 @@
 import SwiftUI
 import AVFoundation
 import Combine
+import Photos
 
 struct CameraView: View {
     
@@ -58,6 +59,29 @@ struct CameraView: View {
                 
                 VStack {
                     Spacer()
+                    
+                    if cameraManager.isAuthorized {
+                        Button(action: {
+                            if cameraManager.isRecording {
+                                cameraManager.stopRecording()
+                            } else {
+                                cameraManager.startRecording()
+                            }
+                        }) {
+                            ZStack {
+                                Circle()
+                                    .fill(cameraManager.isRecording ? Color.red : Color.white)
+                                    .frame(width: 80, height: 80)
+                                    .shadow(radius: 5)
+                                
+                                Image(systemName: cameraManager.isRecording ? "stop.fill" : "record.circle")
+                                    .font(.system(size: 40))
+                                    .foregroundColor(cameraManager.isRecording ? .white : .red)
+                            }
+                        }
+                        .padding(.bottom, 20)
+                    }
+                    
                     HStack {
                         Spacer()
                         VStack(alignment: .trailing, spacing: 5) {
@@ -67,6 +91,12 @@ struct CameraView: View {
                             Text("FPS: \(cameraManager.currentFPS, specifier: "%.1f")")
                                 .font(.caption)
                                 .monospaced()
+                            if cameraManager.isRecording {
+                                Text("Recording: \(Int(cameraManager.recordingDuration))s")
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                                    .fontWeight(.bold)
+                            }
                             Text(cameraManager.debugInfo)
                                 .font(.caption2)
                                 .foregroundColor(.yellow)
@@ -127,12 +157,17 @@ class CameraManager: NSObject, ObservableObject {
     @Published var permissionDenied = false
     @Published var currentFPS: Double = 0.0
     @Published var debugInfo = "Initializing camera..."
+    @Published var isRecording = false
+    @Published var recordingDuration: TimeInterval = 0
     
     let session = AVCaptureSession()
     private var videoOutput: AVCaptureVideoDataOutput?
+    private var movieOutput: AVCaptureMovieFileOutput?
     private var lastFrameTime = CACurrentMediaTime()
     private var frameCount = 0
     private var sessionStartTime: Date?
+    private var recordingStartTime: Date?
+    private var recordingTimer: Timer?
     
     var sessionDuration: TimeInterval {
         guard let startTime = sessionStartTime else { return 0 }
@@ -213,9 +248,15 @@ class CameraManager: NSObject, ObservableObject {
         if session.canAddOutput(output) {
             session.addOutput(output)
             self.videoOutput = output
+        }
+        
+        let movieOutput = AVCaptureMovieFileOutput()
+        if session.canAddOutput(movieOutput) {
+            session.addOutput(movieOutput)
+            self.movieOutput = movieOutput
             debugInfo = "Camera setup completed successfully"
         } else {
-            debugInfo = "Cannot add video output to session"
+            debugInfo = "Cannot add movie output to session"
         }
         
         session.commitConfiguration()
@@ -238,9 +279,42 @@ class CameraManager: NSObject, ObservableObject {
     
     func stopSession() {
         guard session.isRunning else { return }
+        if isRecording {
+            stopRecording()
+        }
         DispatchQueue.global(qos: .userInitiated).async {
             self.session.stopRunning()
         }
+    }
+    
+    func startRecording() {
+        guard let movieOutput = movieOutput, !movieOutput.isRecording else { return }
+        
+        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let outputURL = documentsPath.appendingPathComponent("video_\(Date().timeIntervalSince1970).mov")
+        
+        recordingStartTime = Date()
+        isRecording = true
+        
+        recordingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+            if let startTime = self.recordingStartTime {
+                self.recordingDuration = Date().timeIntervalSince(startTime)
+            }
+        }
+        
+        movieOutput.startRecording(to: outputURL, recordingDelegate: self)
+        debugInfo = "Recording started"
+    }
+    
+    func stopRecording() {
+        guard let movieOutput = movieOutput, movieOutput.isRecording else { return }
+        
+        movieOutput.stopRecording()
+        recordingTimer?.invalidate()
+        recordingTimer = nil
+        isRecording = false
+        recordingDuration = 0
+        debugInfo = "Recording stopped"
     }
 }
 
@@ -256,6 +330,37 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
             }
             frameCount = 0
             lastFrameTime = currentTime
+        }
+    }
+}
+
+extension CameraManager: AVCaptureFileOutputRecordingDelegate {
+    func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: Error?) {
+        if let error = error {
+            debugInfo = "Recording error: \(error.localizedDescription)"
+            return
+        }
+        
+        PHPhotoLibrary.requestAuthorization { status in
+            if status == .authorized {
+                PHPhotoLibrary.shared().performChanges({
+                    PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: outputFileURL)
+                }) { success, error in
+                    DispatchQueue.main.async {
+                        if success {
+                            self.debugInfo = "Video saved to camera roll"
+                        } else {
+                            self.debugInfo = "Failed to save video: \(error?.localizedDescription ?? "Unknown error")"
+                        }
+                    }
+                    
+                    try? FileManager.default.removeItem(at: outputFileURL)
+                }
+            } else {
+                DispatchQueue.main.async {
+                    self.debugInfo = "Photo library access denied"
+                }
+            }
         }
     }
 }

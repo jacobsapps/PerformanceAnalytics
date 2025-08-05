@@ -16,7 +16,7 @@ class MixpanelAnalyticsService: AnalyticsService {
     
     /// Initialize Mixpanel analytics service with project token
     init() {
-        let MIXPANEL_PROJECT_TOKEN = ""
+        let MIXPANEL_PROJECT_TOKEN = "33fad7db4538bd47b22eb07ddb2b15d1"
         self.mixpanelInstance = Mixpanel.initialize(token: MIXPANEL_PROJECT_TOKEN, trackAutomaticEvents: true)
     }
     
@@ -26,6 +26,8 @@ class MixpanelAnalyticsService: AnalyticsService {
     ///   - event: The event name to track
     ///   - properties: Optional dictionary of event-specific properties
     func track(event: String, properties: [String: Any]? = nil) {
+        print("=== Analytics Event: ", event)
+        
         var enrichedProperties = performanceService.getAllMetrics()
         
         // Merge custom properties with performance metrics

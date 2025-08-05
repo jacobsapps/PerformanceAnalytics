@@ -21,74 +21,74 @@ class SystemPerformanceService {
         return ProcessInfo.processInfo.thermalState
     }
     
-    /// Gets current CPU usage percentage across all cores
+    /// Gets current CPU usage percentage for the current app's threads
     /// Returns a value between 0.0 and 100.0 representing CPU utilization
-    /// Uses host_processor_info to query kernel for CPU statistics
+    /// Uses thread-specific CPU usage tracking for accurate app performance metrics
     func getCPUUsage() -> Double {
-        var info: processor_info_array_t? = nil
-        var numCpuInfo = mach_msg_type_number_t()
-        var numCpus = natural_t()
-        
-        let result = host_processor_info(mach_host_self(),
-                                       PROCESSOR_CPU_LOAD_INFO,
-                                       &numCpus,
-                                       &info,
-                                       &numCpuInfo)
-        
-        guard result == KERN_SUCCESS else {
-            return 0.0
+        var totalUsageOfCPU = 0.0
+        var threadsList = UnsafeMutablePointer(mutating: [thread_act_t]())
+        var threadsCount = mach_msg_type_number_t(0)
+        let threadsResult = withUnsafeMutablePointer(to: &threadsList) {
+            $0.withMemoryRebound(to: thread_act_array_t?.self, capacity: 1) {
+                task_threads(mach_task_self_, $0, &threadsCount)
+            }
         }
-        
-        var totalUser: Double = 0
-        var totalSystem: Double = 0  
-        var totalIdle: Double = 0
-        var totalNice: Double = 0
-        
-        guard let infoPtr = info else {
-            return 0.0
+
+        if threadsResult == KERN_SUCCESS {
+            for index in 0 ..< threadsCount {
+                var threadInfo = thread_basic_info()
+                var threadInfoCount = mach_msg_type_number_t(THREAD_INFO_MAX)
+                let infoResult = withUnsafeMutablePointer(to: &threadInfo) {
+                    $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
+                        thread_info(threadsList[Int(index)], thread_flavor_t(THREAD_BASIC_INFO), $0, &threadInfoCount)
+                    }
+                }
+
+                guard infoResult == KERN_SUCCESS else {
+                    break
+                }
+
+                let threadBasicInfo = threadInfo as thread_basic_info
+                if threadBasicInfo.flags & TH_FLAGS_IDLE == 0 {
+                    totalUsageOfCPU = (totalUsageOfCPU + (Double(threadBasicInfo.cpu_usage) / Double(TH_USAGE_SCALE)))
+                }
+            }
         }
-        
-        for i in 0..<numCpus {
-            let cpuInfoPtr = infoPtr.advanced(by: Int(i) * Int(CPU_STATE_MAX))
-            totalUser += Double(cpuInfoPtr[Int(CPU_STATE_USER)])
-            totalSystem += Double(cpuInfoPtr[Int(CPU_STATE_SYSTEM)])
-            totalIdle += Double(cpuInfoPtr[Int(CPU_STATE_IDLE)])
-            totalNice += Double(cpuInfoPtr[Int(CPU_STATE_NICE)])
-        }
-        
-        vm_deallocate(mach_task_self_, vm_address_t(bitPattern: infoPtr), vm_size_t(numCpuInfo))
-        
-        let totalTicks = totalUser + totalSystem + totalIdle + totalNice
-        let totalUsed = totalUser + totalSystem + totalNice
-        
-        return totalTicks > 0 ? (totalUsed / totalTicks) * 100.0 : 0.0
+
+        vm_deallocate(mach_task_self_, vm_address_t(UInt(bitPattern: threadsList)), vm_size_t(Int(threadsCount) * MemoryLayout<thread_t>.stride))
+        let cpuPercentage = totalUsageOfCPU * 100.0
+        print("=== CPU usage: ", String(format: "%.2f%%", cpuPercentage))
+        return cpuPercentage
     }
     
-    /// Gets current memory usage information including used, total, and percentage
-    /// Returns tuple with bytes used, total bytes available, and usage percentage
-    /// Uses vm_statistics64 to query kernel memory statistics
-    func getMemoryUsage() -> (used: UInt64, total: UInt64, percentage: Double) {
-        var info = vm_statistics64()
-        var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64>.size / MemoryLayout<integer_t>.size)
-        
-        let result = host_statistics64(mach_host_self(),
-                                     HOST_VM_INFO64,
-                                     UnsafeMutableRawPointer(&info).assumingMemoryBound(to: integer_t.self),
-                                     &count)
+    /// Gets current memory usage information for the app's memory footprint
+    /// Returns tuple with bytes used, total bytes available, and usage in MB
+    /// Uses task_vm_info to get accurate app-specific memory usage
+    func getMemoryUsage() -> (used: UInt64, total: UInt64, usedMB: Double) {
+        var taskInfo = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info>.size)
+        let result: kern_return_t = withUnsafeMutablePointer(
+            to: &taskInfo
+        ) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
+                task_info(mach_task_self_,
+                          task_flavor_t(TASK_VM_INFO),
+                          $0,
+                          &count)
+            }
+        }
         
         guard result == KERN_SUCCESS else {
-            return (used: 0, total: 0, percentage: 0.0)
+            return (used: 0, total: 0, usedMB: 0.0)
         }
         
         let totalMemory = ProcessInfo.processInfo.physicalMemory
-        let pageSize = UInt64(vm_kernel_page_size)
+        let usedMemory = UInt64(taskInfo.phys_footprint)
+        let usedMB = Double(usedMemory) / (1024 * 1024)
         
-        let usedPages = info.internal_page_count + info.wire_count
-        let usedMemory = UInt64(usedPages) * pageSize
+        print("=== memory usage: ", String(format: "%.2f MB", usedMB))
         
-        let percentage = Double(usedMemory) / Double(totalMemory) * 100.0
-        
-        return (used: usedMemory, total: totalMemory, percentage: percentage)
+        return (used: usedMemory, total: totalMemory, usedMB: usedMB)
     }
     
     /// Gets available storage space information for the device
@@ -156,11 +156,12 @@ class SystemPerformanceService {
         @unknown default: batteryStateString = "unknown"
         }
         
+        print("UsedMB")
+        print(round(memoryInfo.usedMB * 100) / 100)
         return [
             "thermal_state": thermalRating,
             "cpu_usage_percent": round(cpuUsage * 100) / 100,
-            "memory_usage_percent": round(memoryInfo.percentage * 100) / 100,
-            "memory_used_mb": Int(memoryInfo.used / (1024 * 1024)),
+            "memory_usage_mb": round(memoryInfo.usedMB * 100) / 100,
             "memory_total_mb": Int(memoryInfo.total / (1024 * 1024)),
             "battery_level": round(Double(batteryInfo.level) * 100) / 100,
             "battery_state": batteryStateString,
